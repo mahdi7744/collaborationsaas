@@ -1,126 +1,259 @@
-import { createFile, useQuery, getAllFilesByUser, getDownloadFileSignedURL } from 'wasp/client/operations';
-import axios from 'axios';
 import { useState, useEffect, FormEvent } from 'react';
-import { cn } from '../client/cn';
+import axios from 'axios';
+import { FaUpload, FaDownload, FaFileAlt, FaShareAlt } from 'react-icons/fa';
+import { useHistory } from 'react-router-dom';
+import Modal from 'react-modal';
+import { createFile, useQuery, getAllFilesByUser, getDownloadFileSignedURL, shareFileWithUsers } from 'wasp/client/operations';
+import { deleteFile } from './operations';
+
+//import AnnotationComponent from './AnnotationComponent'; // Import the AnnotationComponent
+
+interface File {
+  id: string;
+  key: string;
+  name: string;
+  createdAt: string;
+  type: string;
+  size: number;
+  sharedWith?: SharedFile[];
+}
+
+interface SharedFile {
+  email: string;
+}
+
+
+Modal.setAppElement('#root');
+/*
+const handleDelete = async (fileKey: string) => {
+  if (window.confirm('Are you sure you want to delete this file?')) {
+    try {
+      await deleteFile({ fileKey }, {});
+      alert('File deleted successfully');
+    } catch (error) {
+      console.error('Error deleting file', error);
+      alert('Error deleting file');
+    }
+  }
+};*/
 
 export default function FileUploadPage() {
   const [fileToDownload, setFileToDownload] = useState<string>('');
+  const [emailsToShareWith, setEmailsToShareWith] = useState<string>('');
+  const [filterByShared, setFilterByShared] = useState<boolean>(false);
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [isShareModalOpen, setIsShareModalOpen] = useState<boolean>(false);
 
-  const { data: files, error: filesError, isLoading: isFilesLoading } = useQuery(getAllFilesByUser);
+  const { data: files = [], error: filesError, isLoading: isFilesLoading } = useQuery(getAllFilesByUser);
   const { isLoading: isDownloadUrlLoading, refetch: refetchDownloadUrl } = useQuery(
     getDownloadFileSignedURL,
     { key: fileToDownload },
     { enabled: false }
   );
 
+  const history = useHistory();
+
   useEffect(() => {
     if (fileToDownload.length > 0) {
       refetchDownloadUrl()
         .then((urlQuery) => {
-          switch (urlQuery.status) {
-            case 'error':
-              console.error('Error fetching download URL', urlQuery.error);
-              alert('Error fetching download');
-              return;
-            case 'success':
-              window.open(urlQuery.data, '_blank');
-              return;
+          if (urlQuery.status === 'success') {
+            window.open(urlQuery.data, '_blank');
           }
         })
-        .finally(() => {
-          setFileToDownload('');
-        });
+        .finally(() => setFileToDownload(''));
     }
   }, [fileToDownload]);
 
   const handleUpload = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fileInput = (e.target as HTMLFormElement).elements.namedItem('file-upload') as HTMLInputElement;
+  
+    if (!fileInput.files || fileInput.files.length === 0) {
+      alert('No file selected');
+      return;
+    }
+  
+    const file = fileInput.files[0];
+  
     try {
-      e.preventDefault();
-      const formData = new FormData(e.target as HTMLFormElement);
-      const file = formData.get('file-upload') as File;
-      if (!file || !file.name || !file.type) {
-        throw new Error('No file selected');
-      }
-
       const fileType = file.type;
       const name = file.name;
-
-      const { uploadUrl } = await createFile({ fileType, name });
-      if (!uploadUrl) {
-        throw new Error('Failed to get upload URL');
-      }
-      const res = await axios.put(uploadUrl, file, {
-        headers: {
-          'Content-Type': fileType,
-        },
-      });
-      if (res.status !== 200) {
-        throw new Error('File upload to S3 failed');
+      const response = await createFile({ fileType, name });
+      const uploadUrl = response.uploadUrl;
+  
+      if (uploadUrl) {
+        const res = await axios.put(uploadUrl, file, { headers: { 'Content-Type': fileType } });
+        if (res.status !== 200) {
+          throw new Error('File upload to S3 failed');
+        }
+        alert('File uploaded successfully');
+      } else {
+        throw new Error('No upload URL received');
       }
     } catch (error) {
-      alert('Error uploading file. Please try again');
       console.error('Error uploading file', error);
+      alert('Error uploading file');
     }
   };
 
+  const handleFileShare = async () => {
+    const emailsArray = emailsToShareWith.split(',').map(email => email.trim());
+
+    for (const email of emailsArray) {
+      try {
+        for (const fileKey of selectedFiles) {
+          await shareFileWithUsers({ fileKey, emails: [email] });
+        }
+        alert(`File shared with ${email} successfully`);
+      } catch (error) {
+        console.error(`Error sharing file with ${email}`, error);
+        alert(`Error sharing file with ${email}`);
+      }
+    }
+    setIsShareModalOpen(false);
+  };
+
+  const toggleFileSelection = (fileKey: string) => {
+    setSelectedFiles((prevSelected) =>
+      prevSelected.includes(fileKey)
+        ? prevSelected.filter((key) => key !== fileKey)
+        : [...prevSelected, fileKey]
+    );
+  };
+
+  const filteredFiles = files.map((file: any) => ({
+    ...file,
+    sharedWith: file.sharedWith || []
+  }))?.filter((file: File) => {
+    return (
+      (filterByShared ? (file.sharedWith && file.sharedWith.length > 0) : true) &&
+      (searchTerm.length === 0 || file.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+  });
+
+  const handleAnnotate = (fileKey: string) => {
+    history.push(`/annotate/${fileKey}`);
+  };
+
   return (
-    <div className='py-10 lg:mt-10'>
-      <div className='mx-auto max-w-7xl px-6 lg:px-8'>
-        <div className='mx-auto max-w-4xl text-center'>
-          <h2 className='mt-2 text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl dark:text-white'>
-            <span className='text-yellow-500'>AWS</span> File Upload
-          </h2>
-        </div>
-        <p className='mx-auto mt-6 max-w-2xl text-center text-lg leading-8 text-gray-600 dark:text-white'>
-          This is an example file upload page using AWS S3. Maybe your app needs this. Maybe it doesn't. But a lot of
-          people asked for this feature, so here you go 🤝
-        </p>
-        <div className='my-8 border rounded-3xl border-gray-900/10 dark:border-gray-100/10'>
-          <div className='space-y-10 my-10 py-8 px-4 mx-auto sm:max-w-lg'>
-            <form onSubmit={handleUpload} className='flex flex-col gap-2'>
-              <input
-                type='file'
-                name='file-upload'
-                accept='image/jpeg, image/png, .pdf, text/*'
-                className='text-gray-600 '
-              />
-              <button
-                type='submit'
-                className='min-w-[7rem] font-medium text-gray-800/90 bg-yellow-50 shadow-md ring-1 ring-inset ring-slate-200 py-2 px-4 rounded-md hover:bg-yellow-100 duration-200 ease-in-out focus:outline-none focus:shadow-none hover:shadow-none'
-              >
-                Upload
-              </button>
-            </form>
-            <div className='border-b-2 border-gray-200 dark:border-gray-100/10'></div>
-            <div className='space-y-4 col-span-full'>
-              <h2 className='text-xl font-bold'>Uploaded Files</h2>
-              {isFilesLoading && <p>Loading...</p>}
-              {filesError && <p>Error: {filesError.message}</p>}
-              {!!files && files.length > 0 ? (
-                files.map((file: any) => (
-                  <div
-                    key={file.key}
-                    className={cn('flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3', {
-                      'opacity-70': file.key === fileToDownload && isDownloadUrlLoading,
-                    })}
-                  >
-                    <p>{file.name}</p>
-                    <button
-                      onClick={() => setFileToDownload(file.key)}
-                      disabled={file.key === fileToDownload && isDownloadUrlLoading}
-                      className='min-w-[7rem] text-sm text-gray-800/90 bg-purple-50 shadow-md ring-1 ring-inset ring-slate-200 py-1 px-2 rounded-md hover:bg-purple-100 duration-200 ease-in-out focus:outline-none focus:shadow-none hover:shadow-none disabled:cursor-not-allowed'
-                    >
-                      {file.key === fileToDownload && isDownloadUrlLoading ? 'Loading...' : 'Download'}
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <p>No files uploaded yet :(</p>
-              )}
-            </div>
-          </div>
+    <div className="container mx-auto p-6">
+      <div className="flex justify-between mb-4 items-center">
+        <h1 className="text-2xl font-bold">File Explorer</h1>
+        <div className="space-x-4 flex items-center">
+          <form onSubmit={handleUpload}>
+            <input
+              type="file"
+              name="file-upload"
+              className="hidden"
+              id="file-upload"
+              onChange={(e) => e.currentTarget.form?.requestSubmit()}
+            />
+            <label htmlFor="file-upload" className="btn-primary flex items-center cursor-pointer">
+              <FaUpload className="mr-2" /> Upload
+            </label>
+          </form>
+          <button
+            className="btn-secondary flex items-center"
+            disabled={selectedFiles.length === 0}
+            onClick={() => selectedFiles.forEach((fileKey) => setFileToDownload(fileKey))}
+          >
+            <FaDownload className="mr-2" /> Download
+          </button>
+          <button
+            className="btn-secondary flex items-center"
+            disabled={selectedFiles.length !== 1}
+            onClick={() => handleAnnotate(selectedFiles[0])}
+          >
+            <FaFileAlt className="mr-2" /> Annotate/View
+          </button>
+          <button
+            className="btn-secondary flex items-center"
+            disabled={selectedFiles.length === 0}
+            onClick={() => setIsShareModalOpen(true)}
+          >
+            <FaShareAlt className="mr-2" /> Share
+          </button>
         </div>
       </div>
+
+      <div className="flex mb-4 items-center">
+        <input
+          type="text"
+          placeholder="Search files"
+          className="input-primary w-full mr-2"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+        <button className="btn-secondary" onClick={() => setFilterByShared(!filterByShared)}>
+          {filterByShared ? 'Show All Files' : 'Show Shared Files'}
+        </button>
+      </div>
+
+      {isFilesLoading ? (
+        <p>Loading files...</p>
+      ) : filesError ? (
+        <p>Error loading files</p>
+      ) : (
+        <table className="table-auto w-full text-left">
+          <thead>
+            <tr>
+              <th></th>
+              <th>Name</th>
+              <th>Date</th>
+              <th>Type</th>
+              <th>Size</th>
+              <th>Shared With</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredFiles?.map((file: File) => (
+              <tr key={file.id}>
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={selectedFiles.includes(file.key)}
+                    onChange={() => toggleFileSelection(file.key)}
+                  />
+                </td>
+                <td>{file.name}</td>
+                <td>{new Date(file.createdAt).toLocaleDateString()}</td>
+                <td>{file.type}</td>
+                <td>{file.size} KB</td>
+                <td>
+                  {file.sharedWith && file.sharedWith.length > 0
+                    ? file.sharedWith.map((share: SharedFile) => share.email).join(', ')
+                    : 'N/A'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+<Modal
+  isOpen={isShareModalOpen}
+  onRequestClose={() => setIsShareModalOpen(false)}
+  contentLabel="Share Files"
+  className="relative bg-white rounded-lg shadow-lg p-6 w-full max-w-md mx-auto z-50"
+  overlayClassName="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40"
+>
+  <h2 className="text-xl font-bold mb-4">Share Files</h2>
+  <input
+    type="text"
+    placeholder="Enter emails separated by commas"
+    value={emailsToShareWith}
+    onChange={(e) => setEmailsToShareWith(e.target.value)}
+    className="input-primary w-full mb-4"
+  />
+  <button className="btn-primary" onClick={handleFileShare}>
+    Share
+  </button>
+</Modal>
+
+
+     
     </div>
   );
 }

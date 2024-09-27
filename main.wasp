@@ -236,7 +236,11 @@ query getDownloadFileSignedURL {
   fn: import { getDownloadFileSignedURL } from "@src/file-upload/operations",
   entities: [User, File]
 }
-//#endregion
+action shareFileWithUsers {
+  fn: import { shareFileWithUsers } from "@src/file-upload/operations",
+  entities: [User, File, SharedFile]
+}
+
 
 //#region Analytics
 query getDailyStats {
