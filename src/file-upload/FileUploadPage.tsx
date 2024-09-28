@@ -1,10 +1,12 @@
 import { useState, useEffect, FormEvent } from 'react';
 import axios from 'axios';
-import { FaUpload, FaDownload, FaFileAlt, FaShareAlt } from 'react-icons/fa';
+import { FaUpload, FaDownload, FaFileAlt, FaShareAlt, FaTrash } from 'react-icons/fa';
 import { useHistory } from 'react-router-dom';
 import Modal from 'react-modal';
 import { createFile, useQuery, getAllFilesByUser, getDownloadFileSignedURL, shareFileWithUsers } from 'wasp/client/operations';
-import { deleteFile } from './operations';
+import { deleteFile } from 'wasp/client/operations';
+
+
 
 //import AnnotationComponent from './AnnotationComponent'; // Import the AnnotationComponent
 
@@ -24,18 +26,20 @@ interface SharedFile {
 
 
 Modal.setAppElement('#root');
-/*
-const handleDelete = async (fileKey: string) => {
+
+const handleDelete = async (fileId: string) => {
   if (window.confirm('Are you sure you want to delete this file?')) {
     try {
-      await deleteFile({ fileKey }, {});
+      await deleteFile({ fileId }); // Pass only the fileId
       alert('File deleted successfully');
     } catch (error) {
       console.error('Error deleting file', error);
       alert('Error deleting file');
     }
   }
-};*/
+};
+
+
 
 export default function FileUploadPage() {
   const [fileToDownload, setFileToDownload] = useState<string>('');
@@ -67,34 +71,44 @@ export default function FileUploadPage() {
   }, [fileToDownload]);
 
   const handleUpload = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const fileInput = (e.target as HTMLFormElement).elements.namedItem('file-upload') as HTMLInputElement;
-  
-    if (!fileInput.files || fileInput.files.length === 0) {
-      alert('No file selected');
-      return;
-    }
-  
-    const file = fileInput.files[0];
-  
     try {
+      e.preventDefault();
+      const formData = new FormData(e.target as HTMLFormElement);
+      const file = formData.get('file-upload') as unknown as File;
+      if (!file || !file.name || !file.type) {
+        throw new Error('No file selected');
+      }
+  
       const fileType = file.type;
       const name = file.name;
-      const response = await createFile({ fileType, name });
-      const uploadUrl = response.uploadUrl;
   
-      if (uploadUrl) {
-        const res = await axios.put(uploadUrl, file, { headers: { 'Content-Type': fileType } });
-        if (res.status !== 200) {
-          throw new Error('File upload to S3 failed');
-        }
-        alert('File uploaded successfully');
-      } else {
-        throw new Error('No upload URL received');
+      console.log('File selected:', { name, fileType });
+  
+      // Get the upload URL from the server
+      const { uploadUrl, key } = await createFile({ fileType, name });
+      if (!uploadUrl) {
+        throw new Error('Failed to get upload URL');
       }
+  
+      console.log('Upload URL received:', uploadUrl);
+  
+      // Upload the file to S3
+      const res = await axios.put(uploadUrl, file, {
+        headers: {
+          'Content-Type': fileType,
+        },
+      });
+  
+      console.log('S3 upload response:', res);
+  
+      if (res.status !== 200) {
+        throw new Error('File upload to S3 failed');
+      }
+  
+      alert('File uploaded successfully');
     } catch (error) {
+      alert('Error uploading file. Please try again');
       console.error('Error uploading file', error);
-      alert('Error uploading file');
     }
   };
 
@@ -175,6 +189,12 @@ export default function FileUploadPage() {
           >
             <FaShareAlt className="mr-2" /> Share
           </button>
+          <button
+                  className="btn-danger flex items-center"
+                  onClick={() => handleDelete(selectedFiles[0])}
+                >
+                  <FaTrash className="mr-2" /> Delete
+                </button>
         </div>
       </div>
 
@@ -226,11 +246,12 @@ export default function FileUploadPage() {
                     ? file.sharedWith.map((share: SharedFile) => share.email).join(', ')
                     : 'N/A'}
                 </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+        
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )}
 
 <Modal
   isOpen={isShareModalOpen}
@@ -256,4 +277,8 @@ export default function FileUploadPage() {
      
     </div>
   );
+}
+
+function localDeleteFile(arg0: { fileKey: string; }, arg1: {}) {
+  throw new Error('Function not implemented.');
 }

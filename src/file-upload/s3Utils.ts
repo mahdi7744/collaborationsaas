@@ -16,18 +16,26 @@ type S3Upload = {
   userInfo: string;
 }
 
-export const getUploadFileSignedURLFromS3 = async ({fileType, userInfo}: S3Upload) => {
-  const ex = fileType.split('/')[1];
-  const Key = `${userInfo}/${randomUUID()}.${ex}`;
-  const s3Params = {
-    Bucket: process.env.AWS_S3_FILES_BUCKET,
-    Key,
-    ContentType: `${fileType}`,
-  };
-  const command = new PutObjectCommand(s3Params);
-  const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600,});
-  return { uploadUrl, key: Key };
-}
+export const getUploadFileSignedURLFromS3 = async ({ fileType, userInfo }: S3Upload) => {
+  try {
+    const ex = fileType.split('/')[1];
+    const Key = `${userInfo}/${randomUUID()}.${ex}`;
+    const s3Params = {
+      Bucket: process.env.AWS_S3_FILES_BUCKET,
+      Key,
+      ContentType: fileType,
+    };
+    const command = new PutObjectCommand(s3Params);
+    const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+
+    console.log('Generated signed URL:', uploadUrl);
+
+    return { uploadUrl, key: Key };
+  } catch (error) {
+    console.error('Error generating signed URL:', error);
+    throw error;
+  }
+};
 
 export const getDownloadFileSignedURLFromS3 = async ({ key }: { key: string }) => {
   const s3Params = {

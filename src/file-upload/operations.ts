@@ -2,7 +2,7 @@ import { HttpError } from 'wasp/server';
 import { getUploadFileSignedURLFromS3, getDownloadFileSignedURLFromS3 } from './s3Utils';
 import { type SharedFile, type User, type File } from 'wasp/entities';
 import { type CreateFile, type GetAllFilesByUser, type GetDownloadFileSignedURL } from 'wasp/server/operations';
-//import { getUploadFileSignedURLFromGCS, getDownloadFileSignedURLFromGCS } from './s3Utils';
+
 
 // Declare the type for sharing files with multiple users
 type ShareFileWithUsers = {
@@ -18,24 +18,34 @@ type FileDescription = {
 
 // Create file
 export const createFile: CreateFile<FileDescription, File> = async ({ fileType, name }, context) => {
-  if (!context.user) {
-    throw new HttpError(401, "Unauthorized");
+  try {
+    if (!context.user) {
+      throw new HttpError(401, "Unauthorized");
+    }
+
+    const userInfo = context.user.id;
+    const { uploadUrl, key } = await getUploadFileSignedURLFromS3({ fileType, userInfo });
+
+    console.log('Signed URL and key:', { uploadUrl, key });
+
+    const fileRecord = await context.entities.File.create({
+      data: {
+        name,
+        key,
+        uploadUrl,
+        type: fileType,
+        user: { connect: { id: context.user.id } },
+      },
+    });
+
+    console.log('File record created:', fileRecord);
+
+    return fileRecord;
+  } catch (error) {
+    console.error('Error in createFile:', error);
+    throw error;
   }
-
-  const userInfo = context.user.id;
-  const { uploadUrl, key } = await getUploadFileSignedURLFromS3({ fileType, userInfo });
-
-  return await context.entities.File.create({
-    data: {
-      name,
-      key,
-      uploadUrl,
-      type: fileType,
-      user: { connect: { id: context.user.id } },
-    },
-  });
 };
-
 // Get all files by user
 export const getAllFilesByUser: GetAllFilesByUser<void, File[]> = async (_args, context) => {
   if (!context.user) {
@@ -107,47 +117,37 @@ export const shareFileWithUsers = async (
 };
 
 // Delete file
-/*export const deleteFile = async ({ fileKey }: { fileKey: string }, context: any): Promise<void> => {
+// Delete file
+export const deleteFile = async ({ fileId }: { fileId: string }, context: any) => {
   if (!context.user) {
-    throw new HttpError(401, "Unauthorized");
+    throw new HttpError(401, 'Unauthorized');
   }
 
+  console.log(`Attempting to delete file with id: ${fileId} by user: ${context.user.id}`);
+
+  // Extract the unique file ID if it includes a path
+  const uniqueFileId = fileId.split('/').pop()?.split('.')[0] ?? ''; // Extract the unique file ID without extension
+
+  // Find the file using its id
   const file = await context.entities.File.findUnique({
-    where: { key: fileKey },
+    where: { id: uniqueFileId },
     include: { user: true },
   });
 
-  if (!file || file.userId !== context.user.id) {
-    throw new HttpError(404, "File not found or not authorized");
+  if (!file) {
+    console.log(`File with id: ${uniqueFileId} not found`);
+    throw new HttpError(404, 'File not found');
   }
 
+  if (file.userId !== context.user.id) {
+    console.log(`User: ${context.user.id} not authorized to delete file with id: ${uniqueFileId}`);
+    throw new HttpError(403, 'Not authorized');
+  }
+
+  // Delete the file using its id
   await context.entities.File.delete({
-    where: { key: fileKey },
+    where: { id: uniqueFileId },
   });
-};*/
-// Mocked Delete File function for frontend testing
-export const deleteFile = async ({ fileKey }: { fileKey: string }, context: any): Promise<void> => {
-  // Simulate user authentication check
-  if (!context.user) {
-    throw new Error("Unauthorized: User not authenticated.");
-  }
 
-  // Mock the file lookup (pretend we found the file)
-  const mockFile = {
-    key: fileKey,
-    userId: context.user.id, // Assuming the file belongs to the user
-  };
-
-  // Check if the file belongs to the user (mock logic)
-  if (!mockFile || mockFile.userId !== context.user.id) {
-    throw new Error("File not found or not authorized.");
-  }
-
-  // Simulate deletion by logging to the console
-  console.log(`File with key ${fileKey} would be deleted.`);
-
-  // Instead of deleting from the database, mock a success response
-  return Promise.resolve(); // Simulating successful deletion
+  console.log(`File with id: ${uniqueFileId} deleted successfully`);
 };
-
-

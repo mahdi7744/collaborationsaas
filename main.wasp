@@ -241,6 +241,12 @@ action shareFileWithUsers {
   entities: [User, File, SharedFile]
 }
 
+// Add the deleteFile operation here
+action deleteFile {
+  fn: import { deleteFile } from "@src/file-upload/operations",
+  entities: [User, File]
+}
+
 
 //#region Analytics
 query getDailyStats {
