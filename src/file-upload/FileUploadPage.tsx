@@ -23,15 +23,25 @@ interface File {
 interface SharedFile {
   email: string;
 }
-
-
 Modal.setAppElement('#root');
 
-const handleDelete = async (fileId: string) => {
+
+
+
+
+const handleDelete = async (fileKey: string) => {
   if (window.confirm('Are you sure you want to delete this file?')) {
     try {
-      await deleteFile({ fileId }); // Pass only the fileId
+      console.log(`Attempting to delete file with id: ${fileKey}`);
+      // Now passing fileKey instead of fileId
+      await deleteFile({ fileId: fileKey });
       alert('File deleted successfully');
+
+
+      // Update the state to remove the deleted file
+      setSelectedFiles((prevSelectedFiles) =>
+        prevSelectedFiles.filter((fileId: string) => fileId !== fileKey)
+      );
     } catch (error) {
       console.error('Error deleting file', error);
       alert('Error deleting file');
@@ -78,33 +88,33 @@ export default function FileUploadPage() {
       if (!file || !file.name || !file.type) {
         throw new Error('No file selected');
       }
-  
+
       const fileType = file.type;
       const name = file.name;
-  
+
       console.log('File selected:', { name, fileType });
-  
+
       // Get the upload URL from the server
       const { uploadUrl, key } = await createFile({ fileType, name });
       if (!uploadUrl) {
         throw new Error('Failed to get upload URL');
       }
-  
+
       console.log('Upload URL received:', uploadUrl);
-  
+
       // Upload the file to S3
       const res = await axios.put(uploadUrl, file, {
         headers: {
           'Content-Type': fileType,
         },
       });
-  
+
       console.log('S3 upload response:', res);
-  
+
       if (res.status !== 200) {
         throw new Error('File upload to S3 failed');
       }
-  
+
       alert('File uploaded successfully');
     } catch (error) {
       alert('Error uploading file. Please try again');
@@ -136,6 +146,7 @@ export default function FileUploadPage() {
         : [...prevSelected, fileKey]
     );
   };
+  
 
   const filteredFiles = files.map((file: any) => ({
     ...file,
@@ -190,11 +201,12 @@ export default function FileUploadPage() {
             <FaShareAlt className="mr-2" /> Share
           </button>
           <button
-                  className="btn-danger flex items-center"
-                  onClick={() => handleDelete(selectedFiles[0])}
-                >
-                  <FaTrash className="mr-2" /> Delete
-                </button>
+            className="btn-danger flex items-center"
+            disabled={selectedFiles.length === 0} // Disable if no files are selected
+            onClick={() => handleDelete(selectedFiles[0])} // Pass the first selected file key
+          >
+            <FaTrash className="mr-2" /> Delete
+          </button>
         </div>
       </div>
 
@@ -246,39 +258,41 @@ export default function FileUploadPage() {
                     ? file.sharedWith.map((share: SharedFile) => share.email).join(', ')
                     : 'N/A'}
                 </td>
-        
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    )}
 
-<Modal
-  isOpen={isShareModalOpen}
-  onRequestClose={() => setIsShareModalOpen(false)}
-  contentLabel="Share Files"
-  className="relative bg-white rounded-lg shadow-lg p-6 w-full max-w-md mx-auto z-50"
-  overlayClassName="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40"
->
-  <h2 className="text-xl font-bold mb-4">Share Files</h2>
-  <input
-    type="text"
-    placeholder="Enter emails separated by commas"
-    value={emailsToShareWith}
-    onChange={(e) => setEmailsToShareWith(e.target.value)}
-    className="input-primary w-full mb-4"
-  />
-  <button className="btn-primary" onClick={handleFileShare}>
-    Share
-  </button>
-</Modal>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <Modal
+        isOpen={isShareModalOpen}
+        onRequestClose={() => setIsShareModalOpen(false)}
+        contentLabel="Share Files"
+        className="relative bg-white rounded-lg shadow-lg p-6 w-full max-w-md mx-auto z-50"
+        overlayClassName="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40"
+      >
+        <h2 className="text-xl font-bold mb-4">Share Files</h2>
+        <input
+          type="text"
+          placeholder="Enter emails separated by commas"
+          value={emailsToShareWith}
+          onChange={(e) => setEmailsToShareWith(e.target.value)}
+          className="input-primary w-full mb-4"
+        />
+        <button className="btn-primary" onClick={handleFileShare}>
+          Share
+        </button>
+      </Modal>
 
 
-     
+
     </div>
   );
 }
 
-function localDeleteFile(arg0: { fileKey: string; }, arg1: {}) {
+
+function setSelectedFiles(arg0: (prevSelectedFiles: any) => any) {
   throw new Error('Function not implemented.');
 }
+

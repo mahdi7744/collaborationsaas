@@ -1,8 +1,7 @@
 import { HttpError } from 'wasp/server';
-import { getUploadFileSignedURLFromS3, getDownloadFileSignedURLFromS3 } from './s3Utils';
+import { getUploadFileSignedURLFromS3, getDownloadFileSignedURLFromS3, deleteFileFromS3 } from './s3Utils';
 import { type SharedFile, type User, type File } from 'wasp/entities';
 import { type CreateFile, type GetAllFilesByUser, type GetDownloadFileSignedURL } from 'wasp/server/operations';
-
 
 // Declare the type for sharing files with multiple users
 type ShareFileWithUsers = {
@@ -14,7 +13,6 @@ type FileDescription = {
   fileType: string;
   name: string;
 };
-
 
 // Create file
 export const createFile: CreateFile<FileDescription, File> = async ({ fileType, name }, context) => {
@@ -46,6 +44,7 @@ export const createFile: CreateFile<FileDescription, File> = async ({ fileType, 
     throw error;
   }
 };
+
 // Get all files by user
 export const getAllFilesByUser: GetAllFilesByUser<void, File[]> = async (_args, context) => {
   if (!context.user) {
@@ -117,7 +116,6 @@ export const shareFileWithUsers = async (
 };
 
 // Delete file
-// Delete file
 export const deleteFile = async ({ fileId }: { fileId: string }, context: any) => {
   if (!context.user) {
     throw new HttpError(401, 'Unauthorized');
@@ -125,29 +123,35 @@ export const deleteFile = async ({ fileId }: { fileId: string }, context: any) =
 
   console.log(`Attempting to delete file with id: ${fileId} by user: ${context.user.id}`);
 
-  // Extract the unique file ID if it includes a path
-  const uniqueFileId = fileId.split('/').pop()?.split('.')[0] ?? ''; // Extract the unique file ID without extension
-
-  // Find the file using its id
+  // Find the file using its key
   const file = await context.entities.File.findUnique({
-    where: { id: uniqueFileId },
+    where: { key: fileId },
     include: { user: true },
   });
 
   if (!file) {
-    console.log(`File with id: ${uniqueFileId} not found`);
+    console.log(`File with key: ${fileId} not found`);
+    console.log(`Database records:`, await context.entities.File.findMany()); // Log all file records for debugging
     throw new HttpError(404, 'File not found');
   }
 
   if (file.userId !== context.user.id) {
-    console.log(`User: ${context.user.id} not authorized to delete file with id: ${uniqueFileId}`);
+    console.log(`User: ${context.user.id} not authorized to delete file with key: ${fileId}`);
     throw new HttpError(403, 'Not authorized');
   }
 
-  // Delete the file using its id
-  await context.entities.File.delete({
-    where: { id: uniqueFileId },
-  });
+  try {
+    // Delete the file record from the database
+    await context.entities.File.delete({
+      where: { key: fileId },
+    });
 
-  console.log(`File with id: ${uniqueFileId} deleted successfully`);
+    // Delete the file from S3
+    await deleteFileFromS3({ key: fileId });
+
+    console.log(`File with key: ${fileId} deleted successfully`);
+  } catch (error) {
+    console.error('Error deleting file:', error);
+    throw error;
+  }
 };

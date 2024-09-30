@@ -43,7 +43,7 @@ model File {
 
   name                      String
   type                      String          // File type (e.g., PDF, Image)
-  key                       String          // AWS S3 key
+  key                       String           @unique // Mark the key field as unique
   uploadUrl                 String
   size                      Int?             // File size in bytes
   folder                    String?         // Folder path if applicable
