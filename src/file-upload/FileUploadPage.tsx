@@ -3,12 +3,9 @@ import axios from 'axios';
 import { FaUpload, FaDownload, FaFileAlt, FaShareAlt, FaTrash } from 'react-icons/fa';
 import { useHistory } from 'react-router-dom';
 import Modal from 'react-modal';
-import { createFile, useQuery, getAllFilesByUser, getDownloadFileSignedURL, shareFileWithUsers } from 'wasp/client/operations';
-import { deleteFile } from 'wasp/client/operations';
-
-
-
-//import AnnotationComponent from './AnnotationComponent'; // Import the AnnotationComponent
+import { createFile, useQuery, getAllFilesByUser, getDownloadFileSignedURL, shareFileWithUsers, deleteFile } from 'wasp/client/operations';
+import useColorMode from '../client/hooks/useColorMode';
+ // Import the color mode hook
 
 interface File {
   id: string;
@@ -23,33 +20,16 @@ interface File {
 interface SharedFile {
   email: string;
 }
+
 Modal.setAppElement('#root');
-
-
-
-
-
-const handleDelete = async (fileKey: string) => {
-  if (window.confirm('Are you sure you want to delete this file?')) {
-    try {
-      console.log(`Attempting to delete file with id: ${fileKey}`);
-      // Now passing fileKey instead of fileId
-      await deleteFile({ fileId: fileKey });
-      alert('File deleted successfully');
-
-
-      // Update the state to remove the deleted file
-      setSelectedFiles((prevSelectedFiles) =>
-        prevSelectedFiles.filter((fileId: string) => fileId !== fileKey)
-      );
-    } catch (error) {
-      console.error('Error deleting file', error);
-      alert('Error deleting file');
-    }
-  }
+// Helper function to format file sizes
+const formatFileSize = (sizeInBytes: number) => {
+  if (sizeInBytes < 1024) return sizeInBytes + ' bytes';
+  const i = Math.floor(Math.log(sizeInBytes) / Math.log(1024));
+  const size = (sizeInBytes / Math.pow(1024, i)).toFixed(2);
+  const units = ['bytes', 'KB', 'MB', 'GB', 'TB'];
+  return `${size} ${units[i]}`;
 };
-
-
 
 export default function FileUploadPage() {
   const [fileToDownload, setFileToDownload] = useState<string>('');
@@ -58,6 +38,9 @@ export default function FileUploadPage() {
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [isShareModalOpen, setIsShareModalOpen] = useState<boolean>(false);
+  const [sharedFilesList, setSharedFilesList] = useState<string[]>([]);
+  const [isConfirmationModalOpen, setIsConfirmationModalOpen] = useState<boolean>(false);
+  const [colorMode] = useColorMode(); // Get the current color mode
 
   const { data: files = [], error: filesError, isLoading: isFilesLoading } = useQuery(getAllFilesByUser);
   const { isLoading: isDownloadUrlLoading, refetch: refetchDownloadUrl } = useQuery(
@@ -80,64 +63,91 @@ export default function FileUploadPage() {
     }
   }, [fileToDownload]);
 
+
+
   const handleUpload = async (e: FormEvent<HTMLFormElement>) => {
-    try {
-      e.preventDefault();
-      const formData = new FormData(e.target as HTMLFormElement);
-      const file = formData.get('file-upload') as unknown as File;
-      if (!file || !file.name || !file.type) {
-        throw new Error('No file selected');
-      }
-
-      const fileType = file.type;
-      const name = file.name;
-
-      console.log('File selected:', { name, fileType });
-
-      // Get the upload URL from the server
-      const { uploadUrl, key } = await createFile({ fileType, name });
-      if (!uploadUrl) {
-        throw new Error('Failed to get upload URL');
-      }
-
-      console.log('Upload URL received:', uploadUrl);
-
-      // Upload the file to S3
-      const res = await axios.put(uploadUrl, file, {
-        headers: {
-          'Content-Type': fileType,
-        },
-      });
-
-      console.log('S3 upload response:', res);
-
-      if (res.status !== 200) {
-        throw new Error('File upload to S3 failed');
-      }
-
-      alert('File uploaded successfully');
-    } catch (error) {
-      alert('Error uploading file. Please try again');
-      console.error('Error uploading file', error);
+  try {
+    e.preventDefault();
+    const formData = new FormData(e.target as HTMLFormElement);
+    const file = formData.get('file-upload') as unknown as File;
+    if (!file || !file.name || !file.type) {
+      throw new Error('No file selected');
     }
-  };
 
-  const handleFileShare = async () => {
-    const emailsArray = emailsToShareWith.split(',').map(email => email.trim());
+    const fileType = file.type;
+    const name = file.name;
+    const size = file.size; // Extract file size
 
-    for (const email of emailsArray) {
+    const formattedSize = formatFileSize(size); // Format file size
+
+    console.log('File selected:', { name, fileType, size: formattedSize });
+
+    // Get the upload URL from the server
+    const { uploadUrl, key } = await createFile({ fileType, name, size }); // Send raw size to the server
+    if (!uploadUrl) {
+      throw new Error('Failed to get upload URL');
+    }
+
+    console.log('Upload URL received:', uploadUrl);
+
+    // Upload the file to S3
+    const res = await axios.put(uploadUrl, file, {
+      headers: {
+        'Content-Type': fileType,
+      },
+    });
+
+    console.log('S3 upload response:', res);
+
+    if (res.status !== 200) {
+      throw new Error('File upload to S3 failed');
+    }
+
+    alert(`File uploaded successfully `); // Display formatted size in alert
+  } catch (error) {
+    alert('Error uploading file. Please try again');
+    console.error('Error uploading file', error);
+  }
+};
+
+  
+  
+
+  const handleDelete = async (fileKey: string) => {
+    if (window.confirm('Are you sure you want to delete this file?')) {
       try {
-        for (const fileKey of selectedFiles) {
-          await shareFileWithUsers({ fileKey, emails: [email] });
-        }
-        alert(`File shared with ${email} successfully`);
+        await deleteFile({ fileId: fileKey }); // Ensure this matches your API expectations
+        setSelectedFiles((prevSelected) => prevSelected.filter(key => key !== fileKey)); // Remove deleted file from selected files
+        alert('File deleted successfully');
       } catch (error) {
-        console.error(`Error sharing file with ${email}`, error);
-        alert(`Error sharing file with ${email}`);
+        console.error('Error deleting file', error);
+        alert('Error deleting file');
       }
     }
-    setIsShareModalOpen(false);
   };
+
+ // Updated handleFileShare function
+const handleFileShare = async () => {
+  const emailsArray = emailsToShareWith.split(',').map(email => email.trim());
+  const sharedFiles: string[] = selectedFiles.map(fileKey => {
+      const file = files.find(f => f.key === fileKey);
+      return file ? file.name : '';
+  });
+
+  for (const email of emailsArray) {
+      try {
+          for (const fileKey of selectedFiles) {
+              await shareFileWithUsers({ fileKey, emails: [email] });
+          }
+      } catch (error) {
+          console.error(`Error sharing file with ${email}`, error);
+      }
+  }
+
+  setSharedFilesList(sharedFiles); // This should now be valid
+  setIsShareModalOpen(false); // Close the initial share modal
+  setIsConfirmationModalOpen(true); // Open the confirmation modal
+};
 
   const toggleFileSelection = (fileKey: string) => {
     setSelectedFiles((prevSelected) =>
@@ -146,12 +156,11 @@ export default function FileUploadPage() {
         : [...prevSelected, fileKey]
     );
   };
-  
 
   const filteredFiles = files.map((file: any) => ({
     ...file,
     sharedWith: file.sharedWith || []
-  }))?.filter((file: File) => {
+  })).filter((file: File) => {
     return (
       (filterByShared ? (file.sharedWith && file.sharedWith.length > 0) : true) &&
       (searchTerm.length === 0 || file.name.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -162,8 +171,15 @@ export default function FileUploadPage() {
     history.push(`/annotate/${fileKey}`);
   };
 
+  const getFileExtension = (filename: string) => {
+    const parts = filename.split('.');
+    return parts.length > 1 ? `${parts.pop()}` : '';
+  };
+
+ 
+
   return (
-    <div className="container mx-auto p-6">
+    <div className={`container mx-auto p-6 ${colorMode === 'dark' ? 'bg-gray-900 text-gray-200' : 'bg-white text-black'}`}>
       <div className="flex justify-between mb-4 items-center">
         <h1 className="text-2xl font-bold">File Explorer</h1>
         <div className="space-x-4 flex items-center">
@@ -202,19 +218,25 @@ export default function FileUploadPage() {
           </button>
           <button
             className="btn-danger flex items-center"
-            disabled={selectedFiles.length === 0} // Disable if no files are selected
-            onClick={() => handleDelete(selectedFiles[0])} // Pass the first selected file key
+            disabled={selectedFiles.length === 0}
+            onClick={() => {
+              if (selectedFiles.length === 1) {
+                handleDelete(selectedFiles[0]);
+              } else {
+                alert('Please select only one file to delete at a time.');
+              }
+            }}
           >
             <FaTrash className="mr-2" /> Delete
           </button>
         </div>
       </div>
-
+  
       <div className="flex mb-4 items-center">
         <input
           type="text"
           placeholder="Search files"
-          className="input-primary w-full mr-2"
+          className="input-primary w-full mr-2 border border-gray-300 rounded-lg p-2 focus:outline-none focus:ring focus:ring-blue-500"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
@@ -222,77 +244,109 @@ export default function FileUploadPage() {
           {filterByShared ? 'Show All Files' : 'Show Shared Files'}
         </button>
       </div>
-
+  
       {isFilesLoading ? (
         <p>Loading files...</p>
       ) : filesError ? (
         <p>Error loading files</p>
       ) : (
-        <table className="table-auto w-full text-left">
+        <table className={`table-auto w-full text-left border border-gray-300 rounded-lg shadow-md ${colorMode === 'dark' ? 'bg-gray-800 text-gray-200' : 'bg-white text-black'}`}>
           <thead>
-            <tr>
+            <tr className={`bg-gray-700 ${colorMode === 'dark' ? 'text-gray-200' : 'bg-gray-200'}`}>
               <th></th>
-              <th>Name</th>
-              <th>Date</th>
-              <th>Type</th>
-              <th>Size</th>
-              <th>Shared With</th>
+              <th className="px-4 py-2">Name</th>
+              <th className="px-4 py-2">Date</th>
+              <th className="px-4 py-2">Type</th>
+              <th className="px-4 py-2">Size</th>
+              <th className="px-4 py-2">Shared With</th>
             </tr>
           </thead>
           <tbody>
             {filteredFiles?.map((file: File) => (
-              <tr key={file.id}>
-                <td>
+              <tr key={file.id} className={`hover:bg-gray-600 ${colorMode === 'dark' ? 'bg-gray-700' : ''}`}>
+                <td className="px-4 py-2">
                   <input
                     type="checkbox"
                     checked={selectedFiles.includes(file.key)}
                     onChange={() => toggleFileSelection(file.key)}
                   />
                 </td>
-                <td>{file.name}</td>
-                <td>{new Date(file.createdAt).toLocaleDateString()}</td>
-                <td>{file.type}</td>
-                <td>{file.size} KB</td>
-                <td>
+                <td className="px-4 py-2">{file.name}</td>
+                <td className="px-4 py-2">{new Date(file.createdAt).toLocaleDateString()}</td>
+                <td className="px-4 py-2">{getFileExtension(file.name)}</td>
+                <td className="px-4 py-2">{formatFileSize(file.size)}</td>
+                <td className="px-4 py-2">
                   {file.sharedWith && file.sharedWith.length > 0
                     ? file.sharedWith.map((share: SharedFile) => share.email).join(', ')
                     : 'N/A'}
                 </td>
-
               </tr>
             ))}
           </tbody>
         </table>
       )}
-
+  
+      {/* Share Modal */}
       <Modal
         isOpen={isShareModalOpen}
         onRequestClose={() => setIsShareModalOpen(false)}
         contentLabel="Share Files"
-        className="relative bg-white rounded-lg shadow-lg p-6 w-full max-w-md mx-auto z-50"
-        overlayClassName="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40"
+        className="fixed inset-0 flex items-center justify-center z-50"
+        overlayClassName="fixed inset-0 bg-black bg-opacity-50"
       >
-        <h2 className="text-xl font-bold mb-4">Share Files</h2>
-        <input
-          type="text"
-          placeholder="Enter emails separated by commas"
-          value={emailsToShareWith}
-          onChange={(e) => setEmailsToShareWith(e.target.value)}
-          className="input-primary w-full mb-4"
-        />
-        <button className="btn-primary" onClick={handleFileShare}>
-          Share
-        </button>
+        <div className="bg-gray-800 rounded-lg p-6 shadow-lg w-96">
+          <h2 className="text-lg font-bold text-gray-200">Share Files</h2>
+          <p>Selected Files:</p>
+          <ul>
+            {selectedFiles.map(fileKey => {
+              const file = files.find(f => f.key === fileKey);
+              return file ? <li key={fileKey} className="text-gray-200">{file.name}</li> : null;
+            })}
+          </ul>
+          <input
+            type="text"
+            placeholder="Enter emails separated by commas"
+            value={emailsToShareWith}
+            onChange={(e) => setEmailsToShareWith(e.target.value)}
+            className="input-primary w-full mb-2 border border-gray-300 rounded-lg p-2 focus:outline-none focus:ring focus:ring-blue-500"
+          />
+          <button onClick={handleFileShare} className="btn-primary w-full">
+            Share
+          </button>
+          <button onClick={() => setIsShareModalOpen(false)} className="mt-2 text-center text-gray-500">
+            Cancel
+          </button>
+        </div>
       </Modal>
-
-
-
+  
+      {/* Confirmation Modal */}
+      <Modal
+        isOpen={isConfirmationModalOpen}
+        onRequestClose={() => setIsConfirmationModalOpen(false)}
+        contentLabel="Shared Files Confirmation"
+        className="fixed inset-0 flex items-center justify-center z-50"
+        overlayClassName="fixed inset-0 bg-black bg-opacity-50"
+      >
+        <div className="bg-gray-800 rounded-lg p-6 shadow-lg w-96">
+          <h2 className="text-lg font-bold text-gray-200">Files Shared Successfully!</h2>
+          <p>Files shared:</p>
+          <ul>
+            {sharedFilesList.map(file => (
+              <li key={file} className="text-gray-200">{file}</li>
+            ))}
+          </ul>
+          <p>With:</p>
+          <ul>
+            {emailsToShareWith.split(',').map(email => (
+              <li key={email.trim()} className="text-gray-200">{email.trim()}</li>
+            ))}
+          </ul>
+          <button onClick={() => setIsConfirmationModalOpen(false)} className="btn-primary w-full">
+            Close
+          </button>
+        </div>
+      </Modal>
     </div>
   );
-}
-
-
-function setSelectedFiles(arg0: (prevSelectedFiles: any) => any) {
-  throw new Error('Function not implemented.');
-}
-
+  
+}  

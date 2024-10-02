@@ -12,10 +12,11 @@ type ShareFileWithUsers = {
 type FileDescription = {
   fileType: string;
   name: string;
+  size: number; // Add size here
 };
 
 // Create file
-export const createFile: CreateFile<FileDescription, File> = async ({ fileType, name }, context) => {
+export const createFile: CreateFile<FileDescription, File> = async ({ fileType, name, size }, context) => {
   try {
     if (!context.user) {
       throw new HttpError(401, "Unauthorized");
@@ -26,12 +27,14 @@ export const createFile: CreateFile<FileDescription, File> = async ({ fileType, 
 
     console.log('Signed URL and key:', { uploadUrl, key });
 
+    // Create file record in database, including size
     const fileRecord = await context.entities.File.create({
       data: {
         name,
         key,
         uploadUrl,
         type: fileType,
+        size, // Save the file size in the database
         user: { connect: { id: context.user.id } },
       },
     });
