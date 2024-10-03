@@ -81,14 +81,15 @@ app Swiftshare {
     // NOTE: "Dummy" provider is just for local development purposes.
     //   Make sure to check the server logs for the email confirmation url (it will not be sent to an address)!
     //   Once you are ready for production, switch to e.g. "SendGrid" or "Mailgun" providers. Check out https://docs.opensaas.sh/guides/email-sending/ .
-    provider: Dummy,
+    provider: Mailgun,
     defaultFrom: {
       name: "swiftshare",
       // When using a real provider, e.g. SendGrid, you must use the same email address that you configured your account to send out emails with!
-      email: "me@example.com"
+      email: "baotao2323@gmail.com"
     },
   },
 }
+
 
 
 
@@ -346,3 +347,16 @@ job sendNewsletter {
   entities: [User]
 }
 //#endregion
+
+
+//#endregion
+
+///#region Send Shared File Emails
+job sendSharedFileEmails {
+  executor: PgBoss,
+  perform: {
+    fn: import { checkAndQueueSharedFileEmails } from "@src/server/sendEmail"
+  },
+  entities: [User] // Use User or adjust according to your needs
+}
+

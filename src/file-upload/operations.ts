@@ -2,6 +2,7 @@ import { HttpError } from 'wasp/server';
 import { getUploadFileSignedURLFromS3, getDownloadFileSignedURLFromS3, deleteFileFromS3 } from './s3Utils';
 import { type SharedFile, type User, type File } from 'wasp/entities';
 import { type CreateFile, type GetAllFilesByUser, type GetDownloadFileSignedURL } from 'wasp/server/operations';
+import { checkAndQueueSharedFileEmails } from '../server/sendEmail';
 
 // Declare the type for sharing files with multiple users
 type ShareFileWithUsers = {
@@ -99,24 +100,42 @@ export const shareFileWithUsers = async (
     throw new HttpError(404, "File not found or not authorized");
   }
 
-  const sharedFiles = [];
+  const sharedFiles: SharedFile[] = [];
 
   for (const email of emails) {
     const user = await context.entities.User.findUnique({ where: { email } });
     
     if (user) {
+      // Create the shared file with permissions and sharedBy fields
       const sharedFile = await context.entities.SharedFile.create({
         data: {
           file: { connect: { id: file.id } },
           sharedWith: { connect: { id: user.id } },
+          permissions: 'read', // Set default permissions, adjust as needed
+          sharedBy: { connect: { id: context.user.id } }, // Use the current user's ID
         },
       });
       sharedFiles.push(sharedFile);
     }
   }
 
+  // After creating shared files, send notification emails
+  if (sharedFiles.length > 0) {
+    // Retrieve file names from the sharedFiles array
+    const sharedFileNames = await Promise.all(sharedFiles.map(async (sharedFile) => {
+      const fileRecord = await context.entities.File.findUnique({
+        where: { id: sharedFile.fileId }, // Get the associated file using the fileId
+      });
+      return fileRecord ? fileRecord.name : ''; // Get the name or return an empty string if not found
+    }));
+
+    // Send email notifications
+    await checkAndQueueSharedFileEmails({ emails, sharedFiles: sharedFileNames }, context);
+  }
+
   return sharedFiles;
 };
+
 
 // Delete file
 export const deleteFile = async ({ fileId }: { fileId: string }, context: any) => {

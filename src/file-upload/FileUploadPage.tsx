@@ -4,8 +4,9 @@ import { FaUpload, FaDownload, FaFileAlt, FaShareAlt, FaTrash } from 'react-icon
 import { useHistory } from 'react-router-dom';
 import Modal from 'react-modal';
 import { createFile, useQuery, getAllFilesByUser, getDownloadFileSignedURL, shareFileWithUsers, deleteFile } from 'wasp/client/operations';
-import useColorMode from '../client/hooks/useColorMode';
- // Import the color mode hook
+import useColorMode from '../client/hooks/useColorMode'; // Import the color mode hook
+import { emailSender } from 'wasp/server/email'; // Adjust the import if necessary
+
 
 interface File {
   id: string;
@@ -127,27 +128,41 @@ export default function FileUploadPage() {
   };
 
  // Updated handleFileShare function
-const handleFileShare = async () => {
+ const handleFileShare = async () => {
   const emailsArray = emailsToShareWith.split(',').map(email => email.trim());
   const sharedFiles: string[] = selectedFiles.map(fileKey => {
-      const file = files.find(f => f.key === fileKey);
-      return file ? file.name : '';
+    const file = files.find(f => f.key === fileKey);
+    return file ? file.name : '';
   });
 
   for (const email of emailsArray) {
-      try {
-          for (const fileKey of selectedFiles) {
-              await shareFileWithUsers({ fileKey, emails: [email] });
-          }
-      } catch (error) {
-          console.error(`Error sharing file with ${email}`, error);
+    try {
+      for (const fileKey of selectedFiles) {
+        await shareFileWithUsers({ fileKey, emails: [email] });
       }
+
+      // Trigger the job to send email notifications
+      await fetch('/send-shared-file-emails', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          emails: emailsArray,
+          sharedFiles: sharedFiles,
+        }),
+      });
+    } catch (error) {
+      console.error(`Error sharing file with ${email}`, error);
+    }
   }
 
-  setSharedFilesList(sharedFiles); // This should now be valid
-  setIsShareModalOpen(false); // Close the initial share modal
-  setIsConfirmationModalOpen(true); // Open the confirmation modal
+  setSharedFilesList(sharedFiles);
+  setIsShareModalOpen(false);
+  setIsConfirmationModalOpen(true);
 };
+
+
 
   const toggleFileSelection = (fileKey: string) => {
     setSelectedFiles((prevSelected) =>
