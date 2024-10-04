@@ -5,7 +5,7 @@ import { useHistory } from 'react-router-dom';
 import Modal from 'react-modal';
 import { createFile, useQuery, getAllFilesByUser, getDownloadFileSignedURL, shareFileWithUsers, deleteFile } from 'wasp/client/operations';
 import useColorMode from '../client/hooks/useColorMode'; // Import the color mode hook
-import { emailSender } from 'wasp/server/email'; // Adjust the import if necessary
+
 
 
 interface File {
