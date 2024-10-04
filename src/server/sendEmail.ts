@@ -4,6 +4,7 @@ import { type SendNewsletter } from 'wasp/server/jobs';
 import { type Email } from 'wasp/server/email/core/types';
 import { type User } from 'wasp/entities';
 
+// Initialize the email object
 const emailToSend: Email = {
   to: '',
   subject: 'Files Shared with You',
@@ -11,36 +12,32 @@ const emailToSend: Email = {
   html: '', // This will be set later
 };
 
-// This function queues emails for users when files are shared
-export const checkAndQueueSharedFileEmails: SendNewsletter<{ emails: string[], sharedFiles: string[] }, void> = async (args, context) => {
+// Function to send email notifications for shared files
+
+// Function to send email notifications for shared files
+export const checkAndQueueSharedFileEmails: SendNewsletter<{ emails: string[], sharedFiles: { name: string; senderEmail: string; }[] }, void> = async (args, context) => {
   const { emails, sharedFiles } = args;
 
-  const users = await context.entities.User.findMany({
-    where: {
-      email: {
-        in: emails,
-      },
-    },
-  }) as User[];
-
-  if (users.length === 0) {
-    console.log('No users found to share files with.');
-    return;
-  }
-
+  // Loop through all provided email addresses, regardless of registration
   await Promise.allSettled(
-    users.map(async (user) => {
-      if (user.email) {
-        try {
-          emailToSend.to = user.email;
-          emailToSend.text = `The following files have been shared with you: ${sharedFiles.join(', ')}`;
-          emailToSend.html = `<p>The following files have been shared with you:</p><ul>${sharedFiles.map(file => `<li>${file}</li>`).join('')}</ul>`;
-          
-          await emailSender.send(emailToSend);
-          console.log(`Email sent to ${user.email}`);
-        } catch (error) {
-          console.error('Error sending email to user: ', user.id, error);
-        }
+    emails.map(async (email) => {
+      try {
+        // Construct email content
+        emailToSend.to = email;
+        emailToSend.text = `Files have been shared with you: ${sharedFiles.map(file => file.name).join(', ')}.`;
+        emailToSend.html = `
+          <p>The following files have been shared with you:</p>
+          <ul>
+            ${sharedFiles.map(file => `<li>${file.name} (shared by: ${file.senderEmail})</li>`).join('')}
+          </ul>
+          <p>Access the files through the following link: <a href="http://localhost:3000/file-upload">View Shared Files</a></p>
+        `;
+        
+        // Send the email
+        await emailSender.send(emailToSend);
+        console.log(`Email sent to ${email}`);
+      } catch (error) {
+        console.error('Error sending email to user: ', email, error);
       }
     })
   );

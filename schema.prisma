@@ -54,20 +54,21 @@ model File {
 }
 
 model SharedFile {
-  id                        String          @id @default(uuid())
-  createdAt                 DateTime        @default(now())
+  id          String @id @default(uuid())
+  createdAt   DateTime @default(now())
 
-  file                      File            @relation(fields: [fileId], references: [id])  // Add relation name here
-  fileId                    String
+  file        File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  fileId      String
 
-  sharedBy                  User            @relation("SharedByUser", fields: [sharedById], references: [id])
-  sharedById                String
+  sharedBy    User @relation("SharedByUser", fields: [sharedById], references: [id])
+  sharedById  String
 
-  sharedWith                User            @relation("SharedWithUser", fields: [sharedWithId], references: [id])
-  sharedWithId              String
+  sharedWith  User @relation("SharedWithUser", fields: [sharedWithId], references: [id])
+  sharedWithId String
 
-  permissions               String          // e.g., 'read', 'write', 'annotate'
+  permissions String // e.g., 'read', 'write', 'annotate'
 }
+
 
 model Annotation {
   id                        String          @id @default(uuid())
