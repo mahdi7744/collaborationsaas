@@ -82,59 +82,81 @@ export const getDownloadFileSignedURL: GetDownloadFileSignedURL<{ key: string },
   return await getDownloadFileSignedURLFromS3({ key });
 };
 
-// Share file with multiple users
+// Share file with multiple users (merged version)
 export const shareFileWithUsers = async (
   { fileKey, emails }: ShareFileWithUsers, 
   context: any
-): Promise<SharedFile[]> => {
+): Promise<{ name: string; senderEmail: string }[]> => { // Keep the return type as in the first snippet
   if (!context.user) {
+    console.error("Unauthorized access attempt."); // Log unauthorized access
     throw new HttpError(401, "Unauthorized");
   }
 
+  // Fetch the file based on the provided fileKey
   const file = await context.entities.File.findUnique({
     where: { key: fileKey },
     include: { user: true },
   });
 
+  // Check if the file exists and if the user has permission to share it
   if (!file || file.userId !== context.user.id) {
+    console.error(`File not found or unauthorized access. FileKey: ${fileKey}, UserId: ${context.user.id}`); // Log issue
     throw new HttpError(404, "File not found or not authorized");
   }
 
-  const sharedFiles: SharedFile[] = [];
+  // Initialize an array to hold the shared file details (for email notifications) and SharedFile records
+  const sharedFiles: { name: string; senderEmail: string }[] = [];  
 
+  // Iterate over the list of email addresses
   for (const email of emails) {
+    console.log(`Processing email: ${email}`); // Log current email being processed
+
+    // Fetch the user associated with the email
     const user = await context.entities.User.findUnique({ where: { email } });
     
     if (user) {
-      // Create the shared file with permissions and sharedBy fields
-      const sharedFile = await context.entities.SharedFile.create({
+      console.log(`User found: ${user.id} for email: ${email}`); // Log found user
+
+      // Create a shared file entry for registered users
+      await context.entities.SharedFile.create({
         data: {
           file: { connect: { id: file.id } },
           sharedWith: { connect: { id: user.id } },
-          permissions: 'read', // Set default permissions, adjust as needed
-          sharedBy: { connect: { id: context.user.id } }, // Use the current user's ID
+          permissions: 'read', // Set default permissions
+          sharedBy: { connect: { id: context.user.id } }, // Connect the user sharing the file
         },
       });
-      sharedFiles.push(sharedFile);
+      
+      // Push the shared file details for registered user
+      sharedFiles.push({
+        name: file.name,
+        senderEmail: context.user.email,
+      });
+    } else {
+      console.warn(`User not found for email: ${email}. Proceeding to share with non-registered user.`); // Log if the user does not exist
+
+      // Queue email notifications for non-registered users but skip creating SharedFile entry
+      sharedFiles.push({
+        name: file.name,
+        senderEmail: context.user.email, // Use the current user's email for the sender
+      });
     }
   }
 
-  // After creating shared files, send notification emails
+  // After creating shared files, send notification emails for both registered and non-registered users
   if (sharedFiles.length > 0) {
-    // Retrieve file names from the sharedFiles array
-    const sharedFileNames = await Promise.all(sharedFiles.map(async (sharedFile) => {
-      const fileRecord = await context.entities.File.findUnique({
-        where: { id: sharedFile.fileId }, // Get the associated file using the fileId
-      });
-      return fileRecord ? fileRecord.name : ''; // Get the name or return an empty string if not found
-    }));
-
-    // Send email notifications
-    await checkAndQueueSharedFileEmails({ emails, sharedFiles: sharedFileNames }, context);
+    console.log('Sending email notifications for the following shared files:', sharedFiles); // Log the shared files details
+    await checkAndQueueSharedFileEmails(
+      { emails, sharedFiles }, // Pass the emails and sharedFiles info
+      context
+    );
+  } else {
+    console.log('No shared files to send emails for.'); // Log if no files to send
   }
 
-  return sharedFiles;
+  return sharedFiles; // Return the shared file details for both registered and non-registered users
 };
+
 
 
 // Delete file
