@@ -5,7 +5,7 @@ import { useHistory } from 'react-router-dom';
 import Modal from 'react-modal';
 import { createFile, useQuery, getAllFilesByUser, getDownloadFileSignedURL, shareFileWithUsers, deleteFile } from 'wasp/client/operations';
 import useColorMode from '../client/hooks/useColorMode'; // Import the color mode hook
-
+import { emailSender } from 'wasp/server/email'; // Adjust the import if necessary
 
 
 interface File {
@@ -17,9 +17,10 @@ interface File {
   size: number;
   sharedWith?: SharedFile[];
 }
-
 interface SharedFile {
-  email: string;
+  sharedWith: {
+    email: string;
+  };
 }
 
 Modal.setAppElement('#root');
@@ -67,52 +68,52 @@ export default function FileUploadPage() {
 
 
   const handleUpload = async (e: FormEvent<HTMLFormElement>) => {
-  try {
-    e.preventDefault();
-    const formData = new FormData(e.target as HTMLFormElement);
-    const file = formData.get('file-upload') as unknown as File;
-    if (!file || !file.name || !file.type) {
-      throw new Error('No file selected');
+    try {
+      e.preventDefault();
+      const formData = new FormData(e.target as HTMLFormElement);
+      const file = formData.get('file-upload') as unknown as File;
+      if (!file || !file.name || !file.type) {
+        throw new Error('No file selected');
+      }
+
+      const fileType = file.type;
+      const name = file.name;
+      const size = file.size; // Extract file size
+
+      const formattedSize = formatFileSize(size); // Format file size
+
+      console.log('File selected:', { name, fileType, size: formattedSize });
+
+      // Get the upload URL from the server
+      const { uploadUrl, key } = await createFile({ fileType, name, size }); // Send raw size to the server
+      if (!uploadUrl) {
+        throw new Error('Failed to get upload URL');
+      }
+
+      console.log('Upload URL received:', uploadUrl);
+
+      // Upload the file to S3
+      const res = await axios.put(uploadUrl, file, {
+        headers: {
+          'Content-Type': fileType,
+        },
+      });
+
+      console.log('S3 upload response:', res);
+
+      if (res.status !== 200) {
+        throw new Error('File upload to S3 failed');
+      }
+
+      alert(`File uploaded successfully `); // Display formatted size in alert
+    } catch (error) {
+      alert('Error uploading file. Please try again');
+      console.error('Error uploading file', error);
     }
+  };
 
-    const fileType = file.type;
-    const name = file.name;
-    const size = file.size; // Extract file size
 
-    const formattedSize = formatFileSize(size); // Format file size
 
-    console.log('File selected:', { name, fileType, size: formattedSize });
-
-    // Get the upload URL from the server
-    const { uploadUrl, key } = await createFile({ fileType, name, size }); // Send raw size to the server
-    if (!uploadUrl) {
-      throw new Error('Failed to get upload URL');
-    }
-
-    console.log('Upload URL received:', uploadUrl);
-
-    // Upload the file to S3
-    const res = await axios.put(uploadUrl, file, {
-      headers: {
-        'Content-Type': fileType,
-      },
-    });
-
-    console.log('S3 upload response:', res);
-
-    if (res.status !== 200) {
-      throw new Error('File upload to S3 failed');
-    }
-
-    alert(`File uploaded successfully `); // Display formatted size in alert
-  } catch (error) {
-    alert('Error uploading file. Please try again');
-    console.error('Error uploading file', error);
-  }
-};
-
-  
-  
 
   const handleDelete = async (fileKey: string) => {
     if (window.confirm('Are you sure you want to delete this file?')) {
@@ -127,40 +128,40 @@ export default function FileUploadPage() {
     }
   };
 
- // Updated handleFileShare function
- const handleFileShare = async () => {
-  const emailsArray = emailsToShareWith.split(',').map(email => email.trim());
-  const sharedFiles: string[] = selectedFiles.map(fileKey => {
-    const file = files.find(f => f.key === fileKey);
-    return file ? file.name : '';
-  });
+  // Updated handleFileShare function
+  const handleFileShare = async () => {
+    const emailsArray = emailsToShareWith.split(',').map(email => email.trim());
+    const sharedFiles: string[] = selectedFiles.map(fileKey => {
+      const file = files.find(f => f.key === fileKey);
+      return file ? file.name : '';
+    });
 
-  for (const email of emailsArray) {
-    try {
-      for (const fileKey of selectedFiles) {
-        await shareFileWithUsers({ fileKey, emails: [email] });
+    for (const email of emailsArray) {
+      try {
+        for (const fileKey of selectedFiles) {
+          await shareFileWithUsers({ fileKey, emails: [email] });
+        }
+
+        // Trigger the job to send email notifications
+        await fetch('/send-shared-file-emails', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            emails: emailsArray,
+            sharedFiles: sharedFiles,
+          }),
+        });
+      } catch (error) {
+        console.error(`Error sharing file with ${email}`, error);
       }
-
-      // Trigger the job to send email notifications
-      await fetch('/send-shared-file-emails', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          emails: emailsArray,
-          sharedFiles: sharedFiles,
-        }),
-      });
-    } catch (error) {
-      console.error(`Error sharing file with ${email}`, error);
     }
-  }
 
-  setSharedFilesList(sharedFiles);
-  setIsShareModalOpen(false);
-  setIsConfirmationModalOpen(true);
-};
+    setSharedFilesList(sharedFiles);
+    setIsShareModalOpen(false);
+    setIsConfirmationModalOpen(true);
+  };
 
 
 
@@ -191,7 +192,7 @@ export default function FileUploadPage() {
     return parts.length > 1 ? `${parts.pop()}` : '';
   };
 
- 
+
 
   return (
     <div className={`container mx-auto p-6 ${colorMode === 'dark' ? 'bg-gray-900 text-gray-200' : 'bg-white text-black'}`}>
@@ -246,7 +247,7 @@ export default function FileUploadPage() {
           </button>
         </div>
       </div>
-  
+
       <div className="flex mb-4 items-center">
         <input
           type="text"
@@ -259,7 +260,7 @@ export default function FileUploadPage() {
           {filterByShared ? 'Show All Files' : 'Show Shared Files'}
         </button>
       </div>
-  
+
       {isFilesLoading ? (
         <p>Loading files...</p>
       ) : filesError ? (
@@ -292,15 +293,16 @@ export default function FileUploadPage() {
                 <td className="px-4 py-2">{formatFileSize(file.size)}</td>
                 <td className="px-4 py-2">
                   {file.sharedWith && file.sharedWith.length > 0
-                    ? file.sharedWith.map((share: SharedFile) => share.email).join(', ')
+                    ? file.sharedWith.map((share: SharedFile) => share.sharedWith.email).join(', ')
                     : 'N/A'}
                 </td>
+
               </tr>
             ))}
           </tbody>
         </table>
       )}
-  
+
       {/* Share Modal */}
       <Modal
         isOpen={isShareModalOpen}
@@ -333,7 +335,7 @@ export default function FileUploadPage() {
           </button>
         </div>
       </Modal>
-  
+
       {/* Confirmation Modal */}
       <Modal
         isOpen={isConfirmationModalOpen}
@@ -363,5 +365,5 @@ export default function FileUploadPage() {
       </Modal>
     </div>
   );
-  
+
 }  
