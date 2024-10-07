@@ -17,6 +17,7 @@ interface File {
   type: string;
   size: number;
   userId: string; // Add userId property
+  originalSenderEmail?: string; // Add originalSenderEmail property
 
 
   sharedWith?: SharedFile[];
@@ -202,10 +203,23 @@ export default function FileUploadPage() {
 
   // Modify the way shared emails are displayed to avoid redundancy
   const uniqueSharedEmails = (sharedWith: SharedFile[]) => {
+    if (!sharedWith || sharedWith.length === 0) {
+      return '-'; // No shared emails, return "-"
+    }
+  
     const uniqueEmails = new Set<string>();
-    sharedWith.forEach(share => uniqueEmails.add(share.sharedWith.email));
-    return Array.from(uniqueEmails).join(', ');
+    sharedWith.forEach((share) => {
+      if (share.sharedWith && share.sharedWith.email) {
+        uniqueEmails.add(share.sharedWith.email); // Ensure we are capturing the correct emails
+      }
+    });
+  
+    console.log('Shared With Emails:', Array.from(uniqueEmails)); // Log the emails for debugging
+  
+    return Array.from(uniqueEmails).join(', '); // Join the unique emails with commas
   };
+  
+  
 
   const handleAnnotate = (fileKey: string) => {
     history.push(`/annotate/${fileKey}`);
@@ -326,9 +340,7 @@ export default function FileUploadPage() {
 
 {/* "Shared With Me" column */}
 <td className="px-4 py-2">
-  {file.sharedWith && currentUser && file.userId !== currentUser.id // Check if the file was shared with the current user (not uploaded by them)
-    ? file.sharedWith.find(s => s.sharedWith.email === currentUser.email)?.sharedBy?.email // Display the email of the user who shared the file
-    : '-'} {/* Display '-' if the file wasn't shared with the current user */}
+  {file.originalSenderEmail ? file.originalSenderEmail : '-'}
 </td>
 
 

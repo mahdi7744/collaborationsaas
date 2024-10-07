@@ -44,13 +44,14 @@ model File {
   name                      String
   type                      String          // File type (e.g., PDF, Image)
   key                       String           @unique // Mark the key field as unique
-  uploadUrl                 String
+  uploadUrl                 String?
   size                      Int?             // File size in bytes
   folder                    String?         // Folder path if applicable
   shared                    Boolean         @default(false)  // Shared status
 
   annotations               Annotation[]    // Annotations on this file
   sharedWith                SharedFile[]    
+  originalSenderEmail       String?  // Email of the user who originally shared the file
 }
 
 model SharedFile {
