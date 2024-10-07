@@ -57,22 +57,28 @@ export const getAllFilesByUser: GetAllFilesByUser<void, File[]> = async (_args, 
 
   return context.entities.File.findMany({
     where: {
-      user: {
-        id: context.user.id,
-      },
+      OR: [
+        { userId: context.user.id }, // Files uploaded by the user
+        { sharedWith: { some: { sharedWithId: context.user.id } } } // Files shared with the user
+      ]
     },
     include: {
       sharedWith: {
         include: {
-          sharedWith: true
+          sharedBy: true, // Include the user who shared the file
+          sharedWith: true // Include the user the file is shared with
         }
-      },
+      }
     },
     orderBy: {
       createdAt: 'desc',
     },
   });
 };
+
+
+
+
 
 // Get signed URL for file download
 export const getDownloadFileSignedURL: GetDownloadFileSignedURL<{ key: string }, string> = async (
@@ -82,81 +88,99 @@ export const getDownloadFileSignedURL: GetDownloadFileSignedURL<{ key: string },
   return await getDownloadFileSignedURLFromS3({ key });
 };
 
-// Share file with multiple users (merged version)
+////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+// Share file with multiple users, including validation and handling non-registered users
+
+
 export const shareFileWithUsers = async (
-  { fileKey, emails }: ShareFileWithUsers, 
+  { fileKey, emails }: ShareFileWithUsers,
   context: any
-): Promise<{ name: string; senderEmail: string }[]> => { // Keep the return type as in the first snippet
+): Promise<{ name: string; senderEmail: string }[]> => {
   if (!context.user) {
-    console.error("Unauthorized access attempt."); // Log unauthorized access
     throw new HttpError(401, "Unauthorized");
   }
 
   // Fetch the file based on the provided fileKey
   const file = await context.entities.File.findUnique({
     where: { key: fileKey },
-    include: { user: true },
+    include: { 
+      user: true,
+      sharedWith: true, // Include shared users
+    },
   });
 
-  // Check if the file exists and if the user has permission to share it
-  if (!file || file.userId !== context.user.id) {
-    console.error(`File not found or unauthorized access. FileKey: ${fileKey}, UserId: ${context.user.id}`); // Log issue
-    throw new HttpError(404, "File not found or not authorized");
-  }
+ // Check if the file exists and if the user is either the owner or a shared recipient
+ const isOwner = file.userId === context.user.id;
+const isSharedWithUser: boolean = file.sharedWith.some((shared: { sharedWithId: string }) => shared.sharedWithId === context.user.id);
 
-  // Initialize an array to hold the shared file details (for email notifications) and SharedFile records
-  const sharedFiles: { name: string; senderEmail: string }[] = [];  
+ if (!file || (!isOwner && !isSharedWithUser)) {
+   throw new HttpError(404, "File not found or not authorized");
+ }
 
-  // Iterate over the list of email addresses
-  for (const email of emails) {
-    console.log(`Processing email: ${email}`); // Log current email being processed
+ const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+ const errors: string[] = [];
+ const sharedFiles: { name: string; senderEmail: string }[] = [];
 
-    // Fetch the user associated with the email
-    const user = await context.entities.User.findUnique({ where: { email } });
-    
-    if (user) {
-      console.log(`User found: ${user.id} for email: ${email}`); // Log found user
+ for (const email of emails) {
+   // Validate email format
+   if (!emailRegex.test(email)) {
+     errors.push(`Invalid email format: ${email}`);
+     continue;
+   }
 
-      // Create a shared file entry for registered users
-      await context.entities.SharedFile.create({
-        data: {
-          file: { connect: { id: file.id } },
-          sharedWith: { connect: { id: user.id } },
-          permissions: 'read', // Set default permissions
-          sharedBy: { connect: { id: context.user.id } }, // Connect the user sharing the file
-        },
-      });
-      
-      // Push the shared file details for registered user
-      sharedFiles.push({
-        name: file.name,
-        senderEmail: context.user.email,
-      });
-    } else {
-      console.warn(`User not found for email: ${email}. Proceeding to share with non-registered user.`); // Log if the user does not exist
+   // Prevent sharing with oneself
+   if (email === context.user.email) {
+     errors.push(`Cannot share file with yourself: ${email}`);
+     continue;
+   }
 
-      // Queue email notifications for non-registered users but skip creating SharedFile entry
-      sharedFiles.push({
-        name: file.name,
-        senderEmail: context.user.email, // Use the current user's email for the sender
-      });
-    }
-  }
+   // Fetch the user associated with the email
+   const user = await context.entities.User.findUnique({ where: { email } });
 
-  // After creating shared files, send notification emails for both registered and non-registered users
-  if (sharedFiles.length > 0) {
-    console.log('Sending email notifications for the following shared files:', sharedFiles); // Log the shared files details
-    await checkAndQueueSharedFileEmails(
-      { emails, sharedFiles }, // Pass the emails and sharedFiles info
-      context
-    );
-  } else {
-    console.log('No shared files to send emails for.'); // Log if no files to send
-  }
+   if (user) {
+     // Allow multiple shares; no need to check for existing sharing
+     await context.entities.SharedFile.create({
+       data: {
+         file: { connect: { id: file.id } },
+         sharedWith: { connect: { id: user.id } },
+         sharedBy: { connect: { id: context.user.id } }, // Connect the user sharing the file
+       },
+     });
 
-  return sharedFiles; // Return the shared file details for both registered and non-registered users
+     // Push the shared file details for the registered user
+     sharedFiles.push({
+       name: file.name,
+       senderEmail: context.user.email,
+     });
+   } else {
+     // Handle non-registered users by adding an error or sending an invitation
+     errors.push(`User not registered: ${email}`);
+   }
+ }
+
+ // If there are any errors, throw them to be handled on the frontend
+ if (errors.length > 0) {
+   throw new HttpError(400, errors.join('\n'));
+ }
+
+ // After creating shared files, send notification emails for registered users
+ if (sharedFiles.length > 0) {
+   await checkAndQueueSharedFileEmails(
+     { emails: sharedFiles.map((sf) => sf.senderEmail), sharedFiles },
+     context
+   );
+ }
+
+ return sharedFiles;
 };
 
+
+
+////////////////////////////////////////////////////////////////////////////////////////
 
 
 // Delete file
@@ -170,18 +194,25 @@ export const deleteFile = async ({ fileId }: { fileId: string }, context: any) =
   // Find the file using its key
   const file = await context.entities.File.findUnique({
     where: { key: fileId },
-    include: { user: true },
+    include: { 
+      user: true,
+      sharedWith: true,
+    
+    },
   });
 
   if (!file) {
-    console.log(`File with key: ${fileId} not found`);
-    console.log(`Database records:`, await context.entities.File.findMany()); // Log all file records for debugging
+   
     throw new HttpError(404, 'File not found');
   }
 
-  if (file.userId !== context.user.id) {
-    console.log(`User: ${context.user.id} not authorized to delete file with key: ${fileId}`);
-    throw new HttpError(403, 'Not authorized');
+ 
+  // Check if the current user is either the owner or a recipient of the shared file
+  const isOwner = file.userId === context.user.id;
+  const isSharedWithUser = file.sharedWith.some((shared: { sharedWithId: string }) => shared.sharedWithId === context.user.id);
+
+  if (!isOwner && !isSharedWithUser) {
+    throw new HttpError(403, 'Not authorized to delete this file');
   }
 
   try {

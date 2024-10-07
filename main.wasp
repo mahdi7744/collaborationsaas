@@ -81,7 +81,7 @@ app Swiftshare {
     // NOTE: "Dummy" provider is just for local development purposes.
     //   Make sure to check the server logs for the email confirmation url (it will not be sent to an address)!
     //   Once you are ready for production, switch to e.g. "SendGrid" or "Mailgun" providers. Check out https://docs.opensaas.sh/guides/email-sending/ .
-    provider: Mailgun,
+    provider: Dummy,
     defaultFrom: {
       name: "swiftshare",
       // When using a real provider, e.g. SendGrid, you must use the same email address that you configured your account to send out emails with!
@@ -230,7 +230,7 @@ action createFile {
 
 query getAllFilesByUser {
   fn: import { getAllFilesByUser } from "@src/file-upload/operations",
-  entities: [User, File]
+  entities: [User, SharedFile, File]
 }
 
 query getDownloadFileSignedURL {
@@ -241,13 +241,22 @@ action shareFileWithUsers {
   fn: import { shareFileWithUsers } from "@src/file-upload/operations",
   entities: [User, File, SharedFile]
 }
+/*query getAllEmailsSharedByUser {
+  fn: import { getAllEmailsSharedByUser } from "@src/file-upload/operations",
+  auth: true
+}*/
+
+/*query getFilesSharedWithMe {
+  fn: import { getFilesSharedWithMe } from "@src/file-upload/operations",
+  entities: [File, SharedFile, User]
+}*/
 
 // Add the deleteFile operation here
 action deleteFile {
   fn: import { deleteFile } from "@src/file-upload/operations",
   entities: [User, File]
 }
-
+//endregion
 
 //#region Analytics
 query getDailyStats {

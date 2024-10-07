@@ -5,7 +5,8 @@ import { useHistory } from 'react-router-dom';
 import Modal from 'react-modal';
 import { createFile, useQuery, getAllFilesByUser, getDownloadFileSignedURL, shareFileWithUsers, deleteFile } from 'wasp/client/operations';
 import useColorMode from '../client/hooks/useColorMode'; // Import the color mode hook
-import { emailSender } from 'wasp/server/email'; // Adjust the import if necessary
+import { useAuth } from 'wasp/client/auth';// Import useAuth
+
 
 
 interface File {
@@ -15,10 +16,16 @@ interface File {
   createdAt: string;
   type: string;
   size: number;
+  userId: string; // Add userId property
+
+
   sharedWith?: SharedFile[];
 }
 interface SharedFile {
   sharedWith: {
+    email: string;
+  };
+  sharedBy: {
     email: string;
   };
 }
@@ -34,6 +41,8 @@ const formatFileSize = (sizeInBytes: number) => {
 };
 
 export default function FileUploadPage() {
+
+
   const [fileToDownload, setFileToDownload] = useState<string>('');
   const [emailsToShareWith, setEmailsToShareWith] = useState<string>('');
   const [filterByShared, setFilterByShared] = useState<boolean>(false);
@@ -44,6 +53,7 @@ export default function FileUploadPage() {
   const [isConfirmationModalOpen, setIsConfirmationModalOpen] = useState<boolean>(false);
   const [colorMode] = useColorMode(); // Get the current color mode
 
+  const { data: currentUser } = useAuth();
   const { data: files = [], error: filesError, isLoading: isFilesLoading } = useQuery(getAllFilesByUser);
   const { isLoading: isDownloadUrlLoading, refetch: refetchDownloadUrl } = useQuery(
     getDownloadFileSignedURL,
@@ -128,39 +138,45 @@ export default function FileUploadPage() {
     }
   };
 
-  // Updated handleFileShare function
+
   const handleFileShare = async () => {
     const emailsArray = emailsToShareWith.split(',').map(email => email.trim());
-    const sharedFiles: string[] = selectedFiles.map(fileKey => {
+
+    // Gather the names of the selected files for display
+    const sharedFiles = selectedFiles.map(fileKey => {
       const file = files.find(f => f.key === fileKey);
       return file ? file.name : '';
     });
 
-    for (const email of emailsArray) {
-      try {
-        for (const fileKey of selectedFiles) {
-          await shareFileWithUsers({ fileKey, emails: [email] });
-        }
-
-        // Trigger the job to send email notifications
-        await fetch('/send-shared-file-emails', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            emails: emailsArray,
-            sharedFiles: sharedFiles,
-          }),
-        });
-      } catch (error) {
-        console.error(`Error sharing file with ${email}`, error);
+    try {
+      // Share each selected file with all provided emails at once
+      for (const fileKey of selectedFiles) {
+        await shareFileWithUsers({ fileKey, emails: emailsArray });
       }
-    }
 
-    setSharedFilesList(sharedFiles);
-    setIsShareModalOpen(false);
-    setIsConfirmationModalOpen(true);
+      // Trigger the job to send email notifications after sharing files
+      await fetch('/send-shared-file-emails', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          emails: emailsArray,
+          sharedFiles: sharedFiles,
+        }),
+      });
+
+      // Set the shared file list and open confirmation modal
+      setSharedFilesList(sharedFiles);
+      setIsShareModalOpen(false);
+      setIsConfirmationModalOpen(true);
+
+    } catch (error) {
+      // Extract error message from the server
+      const errorMessage = (error as any)?.response?.data?.message || 'An error occurred while sharing files.';
+      alert(errorMessage); // Display the error message to the user
+      console.error('Error sharing files:', error);
+    }
   };
 
 
@@ -177,11 +193,19 @@ export default function FileUploadPage() {
     ...file,
     sharedWith: file.sharedWith || []
   })).filter((file: File) => {
+    console.log('file.sharedWith:', file.sharedWith); // Log the structure of file.sharedWith
     return (
       (filterByShared ? (file.sharedWith && file.sharedWith.length > 0) : true) &&
       (searchTerm.length === 0 || file.name.toLowerCase().includes(searchTerm.toLowerCase()))
     );
   });
+
+  // Modify the way shared emails are displayed to avoid redundancy
+  const uniqueSharedEmails = (sharedWith: SharedFile[]) => {
+    const uniqueEmails = new Set<string>();
+    sharedWith.forEach(share => uniqueEmails.add(share.sharedWith.email));
+    return Array.from(uniqueEmails).join(', ');
+  };
 
   const handleAnnotate = (fileKey: string) => {
     history.push(`/annotate/${fileKey}`);
@@ -275,6 +299,7 @@ export default function FileUploadPage() {
               <th className="px-4 py-2">Type</th>
               <th className="px-4 py-2">Size</th>
               <th className="px-4 py-2">Shared With</th>
+              <th className="px-4 py-2">Shared With Me</th> {/* Add the new column here */}
             </tr>
           </thead>
           <tbody>
@@ -287,20 +312,33 @@ export default function FileUploadPage() {
                     onChange={() => toggleFileSelection(file.key)}
                   />
                 </td>
+
                 <td className="px-4 py-2">{file.name}</td>
                 <td className="px-4 py-2">{new Date(file.createdAt).toLocaleDateString()}</td>
                 <td className="px-4 py-2">{getFileExtension(file.name)}</td>
                 <td className="px-4 py-2">{formatFileSize(file.size)}</td>
-                <td className="px-4 py-2">
-                  {file.sharedWith && file.sharedWith.length > 0
-                    ? file.sharedWith.map((share: SharedFile) => share.sharedWith.email).join(', ')
-                    : 'N/A'}
-                </td>
+               {/* "Shared By Me" column */}
+               <td className="px-4 py-2">
+  {file.sharedWith && currentUser && file.userId === currentUser.id // Check if the file was uploaded by the current user
+    ? uniqueSharedEmails(file.sharedWith) // Use the helper function to avoid redundancy
+    : '-'} {/* Display '-' if no users were shared */}
+</td>
+
+{/* "Shared With Me" column */}
+<td className="px-4 py-2">
+  {file.sharedWith && currentUser && file.userId !== currentUser.id // Check if the file was shared with the current user (not uploaded by them)
+    ? file.sharedWith.find(s => s.sharedWith.email === currentUser.email)?.sharedBy?.email // Display the email of the user who shared the file
+    : '-'} {/* Display '-' if the file wasn't shared with the current user */}
+</td>
+
+
+
 
               </tr>
             ))}
           </tbody>
         </table>
+
       )}
 
       {/* Share Modal */}
