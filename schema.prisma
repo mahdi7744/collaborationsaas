@@ -32,6 +32,16 @@ model User {
   sharedFiles               SharedFile[]    @relation("SharedWithUser")
   sharedByFiles             SharedFile[]    @relation("SharedByUser")
   annotations               Annotation[]    // Annotations by this user
+  projects                  Project[]       // Projects created by this user
+}
+model Project {
+  id          String    @id @default(uuid())
+  name        String
+  createdAt   DateTime  @default(now())
+  files       File[]    // Files belonging to this project
+
+  user        User      @relation(fields: [userId], references: [id])
+  userId      String
 }
 
 model File {
@@ -48,6 +58,9 @@ model File {
   size                      Int?             // File size in bytes
   folder                    String?         // Folder path if applicable
   shared                    Boolean         @default(false)  // Shared status
+
+  project                   Project?        @relation(fields: [projectId], references: [id])
+  projectId                 String?
 
   annotations               Annotation[]    // Annotations on this file
   sharedWith                SharedFile[]    

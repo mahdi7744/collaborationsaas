@@ -1,7 +1,7 @@
 import { HttpError } from 'wasp/server';
 import { getUploadFileSignedURLFromS3, getDownloadFileSignedURLFromS3, deleteFileFromS3 } from './s3Utils';
-import { type SharedFile, type User, type File } from 'wasp/entities';
-import { type CreateFile, type GetAllFilesByUser, type GetDownloadFileSignedURL } from 'wasp/server/operations';
+import { type SharedFile, type User, type File, type Project } from 'wasp/entities';
+import { type CreateFile, type GetAllFilesByUser, type GetDownloadFileSignedURL, type CreateNewProject, type GetAllProjectsByUser } from 'wasp/server/operations';
 import { checkAndQueueSharedFileEmails } from '../server/sendEmail';
 
 // Declare the type for sharing files with multiple users
@@ -14,10 +14,37 @@ type FileDescription = {
   fileType: string;
   name: string;
   size: number; // Add size here
+  projectId?: string; // Optional projectId
 };
 
-// Create file
-export const createFile: CreateFile<FileDescription, File> = async ({ fileType, name, size }, context) => {
+type CreateProjectArgs = {
+  name: string;
+};
+
+// Create Project
+export const createNewProject: CreateNewProject<CreateProjectArgs, Project> = async ({ name }, context) => {
+  if (!context.user) {
+    throw new HttpError(401, "Unauthorized");
+  }
+
+  try {
+    const project = await context.entities.Project.create({
+      data: {
+        name,
+        userId: context.user.id, // Associate project with current user
+      },
+    });
+
+    console.log('Project created:', project);
+    return project;
+  } catch (error) {
+    console.error('Error in createNewProject:', error);
+    throw error;
+  }
+};
+
+// Create file (with optional project association)
+export const createFile: CreateFile<FileDescription, File> = async ({ fileType, name, size, projectId }, context) => {
   try {
     if (!context.user) {
       throw new HttpError(401, "Unauthorized");
@@ -28,15 +55,16 @@ export const createFile: CreateFile<FileDescription, File> = async ({ fileType, 
 
     console.log('Signed URL and key:', { uploadUrl, key });
 
-    // Create file record in database, including size
+    // Create file record in database, including size and project association if applicable
     const fileRecord = await context.entities.File.create({
       data: {
         name,
         key,
         uploadUrl,
         type: fileType,
-        size, // Save the file size in the database
+        size,
         user: { connect: { id: context.user.id } },
+        project: projectId ? { connect: { id: projectId } } : undefined,
       },
     });
 
@@ -49,7 +77,23 @@ export const createFile: CreateFile<FileDescription, File> = async ({ fileType, 
   }
 };
 
-// Get all files by user
+// Get all projects by user
+export const getAllProjectsByUser: GetAllProjectsByUser<void, Project[]> = async (_args, context) => {
+  if (!context.user) {
+    throw new HttpError(401, "Unauthorized");
+  }
+
+  return await context.entities.Project.findMany({
+    where: {
+      userId: context.user.id,
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+};
+
+// Get all files by user (including project information)
 export const getAllFilesByUser: GetAllFilesByUser<void, File[]> = async (_args, context) => {
   if (!context.user) {
     throw new HttpError(401, "Unauthorized");
@@ -63,6 +107,7 @@ export const getAllFilesByUser: GetAllFilesByUser<void, File[]> = async (_args, 
       ]
     },
     include: {
+      project: true, // Include project information if the file is part of a project
       sharedWith: {
         include: {
           sharedBy: true, // Include the user who shared the file
@@ -76,10 +121,6 @@ export const getAllFilesByUser: GetAllFilesByUser<void, File[]> = async (_args, 
   });
 };
 
-
-
-
-
 // Get signed URL for file download
 export const getDownloadFileSignedURL: GetDownloadFileSignedURL<{ key: string }, string> = async (
   { key },
@@ -89,9 +130,6 @@ export const getDownloadFileSignedURL: GetDownloadFileSignedURL<{ key: string },
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////
-
-
-
 
 // Share file with multiple users, including validation and handling non-registered users
 export const shareFileWithUsers = async (
@@ -148,6 +186,7 @@ export const shareFileWithUsers = async (
             size: originalFile.size,
             user: { connect: { id: user.id } }, // File belongs to the recipient
             originalSenderEmail: context.user.email, // Preserve sender's email
+            project: originalFile.projectId ? { connect: { id: originalFile.projectId } } : undefined, // Maintain project association if exists
             // Do not include the uploadUrl since the file already exists in S3
           },
         });
@@ -183,22 +222,7 @@ export const shareFileWithUsers = async (
 };
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 ////////////////////////////////////////////////////////////////////////////////////////
-
-
-
 // Delete file
 export const deleteFile = async ({ fileId }: { fileId: string }, context: any) => {
   if (!context.user) {
@@ -207,9 +231,9 @@ export const deleteFile = async ({ fileId }: { fileId: string }, context: any) =
 
   console.log(`Attempting to delete file with id: ${fileId} by user: ${context.user.id}`);
 
-  // Find the file by its key and ensure it belongs to the current user
+  // Find the file by its id (not key) and ensure it belongs to the current user
   const file = await context.entities.File.findUnique({
-    where: { key: fileId },
+    where: { id: fileId }, // Use id here instead of key
     include: { user: true },
   });
 
@@ -225,7 +249,7 @@ export const deleteFile = async ({ fileId }: { fileId: string }, context: any) =
   try {
     // Delete the file record from the database
     await context.entities.File.delete({
-      where: { key: fileId },
+      where: { id: fileId }, // Use id here instead of key
     });
 
     // Delete the file from S3
@@ -238,3 +262,46 @@ export const deleteFile = async ({ fileId }: { fileId: string }, context: any) =
   }
 };
 
+// Delete a project and all its files
+export const deleteProject = async ({ projectId }: { projectId: string }, context: any) => {
+  if (!context.user) {
+    throw new HttpError(401, 'Unauthorized');
+  }
+
+  try {
+    // Delete all files associated with the project
+    await context.entities.File.deleteMany({
+      where: { projectId },
+    });
+
+    // Now delete the project itself
+    await context.entities.Project.delete({
+      where: { id: projectId },
+    });
+
+    console.log(`Project with id: ${projectId} deleted successfully`);
+  } catch (error) {
+    console.error('Error deleting project:', error);
+    throw error;
+  }
+};
+
+// Rename a project
+export const renameProject = async ({ projectId, newName }: { projectId: string, newName: string }, context: any) => {
+  if (!context.user) {
+    throw new HttpError(401, 'Unauthorized');
+  }
+
+  try {
+    const project = await context.entities.Project.update({
+      where: { id: projectId },
+      data: { name: newName },
+    });
+
+    console.log(`Project renamed to: ${project.name}`);
+    return project;
+  } catch (error) {
+    console.error('Error renaming project:', error);
+    throw error;
+  }
+};

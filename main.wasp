@@ -124,6 +124,27 @@ page EmailVerificationPage {
   component: import { EmailVerificationPage } from "@src/auth/email-and-pass/EmailVerificationPage",
 }
 //#endregion
+// #region Project Management
+action createNewProject {
+  fn: import { createNewProject } from "@src/file-upload/operations",
+  entities: [Project]
+}
+
+query getAllProjectsByUser {
+  fn: import { getAllProjectsByUser } from "@src/file-upload/operations",
+  entities: [Project]
+}
+
+action deleteProject {
+  fn: import { deleteProject } from "@src/file-upload/operations",
+  entities: [Project, File]
+}
+
+action renameProject {
+  fn: import { renameProject } from "@src/file-upload/operations",
+  entities: [Project]
+}
+// #endregion
 
 //#region User
 route AccountRoute { path: "/account", to: AccountPage }
@@ -216,6 +237,9 @@ api paymentsWebhook {
 }
 //#endregion
 
+
+
+
 //#region File Upload
 route FileUploadRoute { path: "/file-upload", to: FileUploadPage }
 page FileUploadPage {
@@ -225,12 +249,12 @@ page FileUploadPage {
 
 action createFile {
   fn: import { createFile } from "@src/file-upload/operations",
-  entities: [User, File]
+  entities: [User, File, Project]
 }
 
 query getAllFilesByUser {
   fn: import { getAllFilesByUser } from "@src/file-upload/operations",
-  entities: [User, SharedFile, File]
+  entities: [User, SharedFile, File, Project]
 }
 
 query getDownloadFileSignedURL {
@@ -257,7 +281,14 @@ action deleteFile {
   entities: [User, File]
 }
 //endregion
+//#File Annotation Page
 
+route FileAnnotationRoute { path: "/file-upload/:filekey", to: FileAnnotationPage }
+page FileAnnotationPage {
+  authRequired: true,
+  component: import FileAnnotation from "@src/file-upload/FileAnnotationPage"
+}
+// #region File Annotation
 //#region Analytics
 query getDailyStats {
   fn: import { getDailyStats } from "@src/analytics/operations",
