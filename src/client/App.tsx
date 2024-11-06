@@ -15,7 +15,7 @@ export default function App({ children }: { children: ReactNode }) {
   const { data: user } = useAuth();
 
   const shouldDisplayAppNavBar = useMemo(() => {
-    return location.pathname !== '/' && location.pathname !== '/login' && location.pathname !== '/signup';
+    return location.pathname !== '/' && location.pathname !== '/login' && location.pathname !== '/signup' && location.pathname !== '/annotation';
   }, [location]);
 
   const isAdminDashboard = useMemo(() => {
@@ -45,15 +45,18 @@ export default function App({ children }: { children: ReactNode }) {
   return (
     <>
       <div className='min-h-screen dark:text-white dark:bg-boxdark-2'>
-        {isAdminDashboard ? (
-          <>{children}</>
-        ) : (
-          <>
-            {shouldDisplayAppNavBar && <AppNavBar />}
-            <div className='mx-auto max-w-7xl sm:px-6 lg:px-8'>{children}</div>
-          </>
-        )}
+  {isAdminDashboard ? (
+    <>{children}</>
+  ) : (
+    <>
+      {shouldDisplayAppNavBar && <AppNavBar />}
+      <div className={location.pathname === '/annotation' ? 'w-full h-full mx-0 px-0' : 'mx-auto max-w-7xl sm:px-6 lg:px-8'}>
+        {children}
       </div>
+    </>
+  )}
+</div>
+
       <CookieConsentBanner />
     </>
   );

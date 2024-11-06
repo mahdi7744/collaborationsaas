@@ -20,6 +20,10 @@
     @apply h-[calc(100vh_-_8.125rem)] lg:h-[calc(100vh_-_5.625rem)];
   }
 }
+.annotation-layer {
+  pointer-events: none; /* Allow interactions with underlying video */
+}
+
 
 
 
@@ -153,4 +157,12 @@ span.flatpickr-weekday,
 
 [x-cloak] {
   display: none !important;
+}
+/* Add to your global CSS */
+.btn-primary {
+  @apply bg-blue-600 text-white hover:bg-blue-700 rounded-md;
+}
+
+.btn-secondary {
+  @apply bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-md;
 }

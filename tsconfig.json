@@ -7,6 +7,7 @@
   "compilerOptions": {
     "module": "esnext",
     "target": "esnext",
+
     // We're bundling all code in the end so this is the most appropriate option,
     // it's also important for autocomplete to work properly.
     "moduleResolution": "bundler",
@@ -22,6 +23,7 @@
     ],
     "allowJs": true,
     "typeRoots": [
+        
       // This is needed to properly support Vitest testing with jest-dom matchers.
       // Types for jest-dom are not recognized automatically and Typescript complains
       // about missing types e.g. when using `toBeInTheDocument` and other matchers.

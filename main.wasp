@@ -125,6 +125,7 @@ page EmailVerificationPage {
 }
 //#endregion
 // #region Project Management
+/*
 action createNewProject {
   fn: import { createNewProject } from "@src/file-upload/operations",
   entities: [Project]
@@ -145,7 +146,7 @@ action renameProject {
   entities: [Project]
 }
 // #endregion
-
+*/
 //#region User
 route AccountRoute { path: "/account", to: AccountPage }
 page AccountPage {
@@ -167,6 +168,17 @@ action updateUserById {
   fn: import { updateUserById } from "@src/user/operations",
   entities: [User]
 }
+//#endregion
+
+
+//#region Invite and Notification System
+
+
+
+// Removed route and page for notifications since they will be displayed in the bell dropdown
+
+
+
 //#endregion
 
 //#region Demo AI App
@@ -241,6 +253,7 @@ api paymentsWebhook {
 
 
 //#region File Upload
+/*
 route FileUploadRoute { path: "/file-upload", to: FileUploadPage }
 page FileUploadPage {
   authRequired: true,
@@ -268,12 +281,12 @@ action shareFileWithUsers {
 /*query getAllEmailsSharedByUser {
   fn: import { getAllEmailsSharedByUser } from "@src/file-upload/operations",
   auth: true
-}*/
+}
 
-/*query getFilesSharedWithMe {
+query getFilesSharedWithMe {
   fn: import { getFilesSharedWithMe } from "@src/file-upload/operations",
   entities: [File, SharedFile, User]
-}*/
+}
 
 // Add the deleteFile operation here
 action deleteFile {
@@ -283,12 +296,45 @@ action deleteFile {
 //endregion
 //#File Annotation Page
 
-route FileAnnotationRoute { path: "/file-upload/:filekey", to: FileAnnotationPage }
+route FileAnnotationRoute { 
+  path: "/annotation", 
+  to: FileAnnotationPage
+}
+
 page FileAnnotationPage {
   authRequired: true,
-  component: import FileAnnotation from "@src/file-upload/FileAnnotationPage"
+  component: import FileAnnotationPage from "@src/file-upload/annotation/FileAnnotationPage"
+}*/
+
+
+
+//endregion 
+//#region Dashboard
+route DashboardRoute { 
+  path: "/dashboard", 
+  to: DashboardPage 
 }
-// #region File Annotation
+
+page DashboardPage {
+  authRequired: true,
+  component: import DashboardPage from "@src/dashboard/DashboardPage"
+}
+//#endregion
+
+//#region Session
+route SessionRoute { 
+  path: "/session", 
+  to: SessionPage 
+}
+
+page SessionPage {
+  authRequired: true,
+  component: import SessionPage from "@src/session/SessionPage"
+}
+//#endregion
+
+
+
 //#region Analytics
 query getDailyStats {
   fn: import { getDailyStats } from "@src/analytics/operations",

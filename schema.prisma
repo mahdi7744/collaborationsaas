@@ -33,7 +33,12 @@ model User {
   sharedByFiles             SharedFile[]    @relation("SharedByUser")
   annotations               Annotation[]    // Annotations by this user
   projects                  Project[]       // Projects created by this user
+  invitesSent               Invite[]        @relation("SentInvites")
+  invitesReceived           Invite[]        @relation("ReceivedInvites")
 }
+
+
+
 model Project {
   id          String    @id @default(uuid())
   name        String
@@ -80,8 +85,7 @@ model SharedFile {
   sharedWith  User @relation("SharedWithUser", fields: [sharedWithId], references: [id])
   sharedWithId String
 
-  
-  
+   
   
 }
 
@@ -99,6 +103,19 @@ model Annotation {
   content                   String          // Text or markup of the annotation
   timestamp                 DateTime        @default(now())
 }
+
+
+model Invite {
+  id              Int       @id @default(autoincrement())
+  senderId        String
+  recipientId     String
+  status          String    // "pending", "accepted", "declined"
+  createdAt       DateTime  @default(now())
+
+  sender          User      @relation("SentInvites", fields: [senderId], references: [id])
+  recipient       User      @relation("ReceivedInvites", fields: [recipientId], references: [id])
+}
+
 
 model GptResponse {
   id                        String          @id @default(uuid())
